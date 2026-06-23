@@ -427,10 +427,10 @@ function App() {
             
             {gameState.status === "playing" && (
               <div className={`status-banner ${isMyTurn ? (gameState.phase === 'expand' ? 'status-expand' : 'status-playing') : ''}`} style={!isMyTurn ? { background: "#1e293b", color: "#94a3b8", border: "1px solid #334155", margin: 0 } : { margin: 0 }}>
-                {isMyTurn ? <Play size={28} /> : <RefreshCcw size={28} className={gameState.status === "playing" ? "animate-spin" : ""} />}
+                {isMyTurn ? <Play size={22} /> : <RefreshCcw size={22} className={gameState.status === "playing" ? "animate-spin" : ""} />}
                 <div style={{ flex: 1 }}>
-                  <strong style={{ fontSize: "1.2rem" }}>{isMyTurn ? "Your Turn!" : "Waiting for other player..."}</strong>
-                  <div style={{ fontSize: "0.95rem", textTransform: "uppercase", marginTop: "0.25rem", letterSpacing: "0.05em", fontFamily: "'Space Mono', monospace" }}>
+                  <strong style={{ fontSize: "1.05rem" }}>{isMyTurn ? "Your Turn!" : "Waiting for other player..."}</strong>
+                  <div style={{ fontSize: "0.82rem", textTransform: "uppercase", marginTop: "0.12rem", letterSpacing: "0.05em", fontFamily: "'Space Mono', monospace" }}>
                     Phase: {gameState.phase.replace(/[0-9]/g, '')}
                   </div>
                 </div>
@@ -503,14 +503,14 @@ function App() {
             )}
             
             {isMyTurn && gameState.status === "playing" && (gameState.phase === "trade1" || gameState.phase === "trade2") && me && (
-              <div className="panel-section" style={{ padding: "0.75rem 1rem" }}>
+              <div className="panel-section" style={{ padding: "0.6rem 0.8rem" }}>
                 
                 <div className="trade-header-row">
                   <div className="title">TRADE DESK</div>
                   <div className="cash-badge">
                     <DollarSign size={14} /> Cash: {me.cash.toLocaleString()}
                   </div>
-                  <div style={{ fontSize: "0.75rem", color: "#94a3b8", fontWeight: 600 }}>
+                  <div style={{ fontSize: "0.7rem", color: "#94a3b8", fontWeight: 600 }}>
                     Buys left: <span style={{color: "#fff"}}>{remainingBuys}</span>
                   </div>
                 </div>
@@ -536,7 +536,7 @@ function App() {
                   <button 
                     className="trade-btn-buy" 
                     onClick={() => sendAction("trade", { trade_type: "buy", company: tradeCompany, count: tradeCount })} 
-                    style={{ flex: 1, padding: "0.6rem" }}
+                    style={{ flex: 1, padding: "0.5rem" }}
                     disabled={remainingBuys === 0 || me.cash < gameState.stock_price[tradeCompany] * tradeCount}
                     title={remainingBuys === 0 ? "You have reached your 5-share purchase limit for this turn." : ""}
                   >
@@ -545,14 +545,14 @@ function App() {
                   <button 
                     className="trade-btn-sell" 
                     onClick={() => sendAction("trade", { trade_type: "sell", company: tradeCompany, count: tradeCount })} 
-                    style={{ flex: 1, padding: "0.6rem" }}
+                    style={{ flex: 1, padding: "0.5rem" }}
                     disabled={me.stocks[tradeCompany] < tradeCount}
                   >
                     <ArrowUpCircle size={16} /> SELL
                   </button>
                 </div>
                 
-                <div style={{ display: "flex", gap: "1rem", marginTop: "1rem", borderTop: "1px dashed var(--border)", paddingTop: "1rem" }}>
+                <div style={{ display: "flex", gap: "0.75rem", marginTop: "0.75rem", borderTop: "1px dashed var(--border)", paddingTop: "0.75rem" }}>
                   {gameState.phase === "trade1" && (
                     <button className="primary-action-btn" onClick={() => sendAction("roll")} style={{ flex: 1, background: "var(--primary)", borderColor: "var(--primary-hover)", color: "white" }}>
                       🎲 Roll
@@ -620,16 +620,16 @@ function App() {
               <div className="scrollable-content">
                 {gameState.players.map((p: any) => (
                   <div key={p.id} className={`player-card ${p.id === gameState.current_player ? "active-turn" : ""} ${lossAnimations[p.id] ? "loss-animation" : ""}`}>
-                    <div className="player-header" style={{ marginBottom: "0.25rem" }}>
-                      <div className="player-name" style={{ display: "flex", alignItems: "center", fontSize: "1rem" }}>
+                    <div className="player-header compact-player-header">
+                      <div className="player-name compact-player-name" style={{ display: "flex", alignItems: "center" }}>
                         {p.name.substring(0, 10)}
-                        {p.is_bot && <span className="bot-tag"><Bot size={12}/></span>}
+                        {p.is_bot && <span className="bot-tag"><Bot size={10}/></span>}
+                      </div>
+                      <div className="cash-badge compact-cash-badge" style={{ display: "inline-flex" }}>
+                        <DollarSign size={12} /> {p.cash.toLocaleString()}
                       </div>
                     </div>
-                    <div className="cash-badge" style={{ marginBottom: "0.5rem", display: "inline-flex" }}>
-                      <DollarSign size={14} /> {p.cash.toLocaleString()}
-                    </div>
-                    {p.bankrupt && <div style={{ color: "#ef4444", fontWeight: 800, fontSize: "0.85rem", marginBottom: "0.5rem", letterSpacing: "0.1em" }}>BANKRUPT</div>}
+                    {p.bankrupt && <div className="bankrupt-tag" style={{ color: "#ef4444", fontWeight: 800, fontSize: "0.72rem", marginBottom: "0.3rem", letterSpacing: "0.08em" }}>BANKRUPT</div>}
                     
                     <div className="portfolio">
                       {COMPANIES.map(c => (
