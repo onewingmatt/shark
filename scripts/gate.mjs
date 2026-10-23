@@ -61,13 +61,24 @@ const settled = [];
 /** Scripts that look like tiers but are not gated on purpose (e.g. a browser-only suite). */
 const NOT_TIERS = new Set(['test:watch', 'test:ui', 'lint', 'lint:fix', 'format', 'prepare', 'build', 'dev', 'start', 'preview', 'postinstall']);
 
+/** A watcher / coverage / verbose run of a tier is not itself a tier. Three repos in this fleet
+ *  declare test:unit:watch and friends, and flagging those as "unrunnable tiers" is a false alarm
+ *  that buries the real ones. */
+const VARIANT = /:(watch|ui|coverage|cov|verbose|debug|update|only|ci|fast)$/;
+
+/** Names this repo declares KNOWINGLY not as tiers — aliases and duplicates of a real tier, where
+ *  the real tier is in the FLOOR and the gate does run it. Like every other ledger here, a stale
+ *  entry FAILS: if the script disappears, the entry must go too. */
+const VARIANTS = (pkg.gate && pkg.gate.variants) || [];
+
 const argv = process.argv.slice(2);
 const only = (argv.find((a) => a.startsWith('--only=')) || '').split('=')[1];
 const deep = argv.includes('--deep');
 const strict = argv.includes('--strict');
 
 const fails = [];
-const declaredTiers = Object.keys(scripts).filter((s) => TIERS[s] || (!NOT_TIERS.has(s) && /^(test|deploy)[:\-]/.test(s)));
+const isTier = (s) => TIERS[s] || (!NOT_TIERS.has(s) && !VARIANT.test(s) && !VARIANTS.includes(s) && /^(test|deploy)[:\-]/.test(s));
+const declaredTiers = Object.keys(scripts).filter(isTier);
 
 console.log(`◈ gate — ${pkg.name || 'this repo'}`);
 
@@ -76,9 +87,10 @@ for (const tier of FLOOR) {
   if (!scripts[tier]) fails.push(`FLOOR tier "${tier}" is not declared in package.json scripts — the proof is missing`);
 }
 for (const s of Object.keys(scripts)) {
-  if (NOT_TIERS.has(s)) continue;
-  const tierish = TIERS[s] || /^(test|deploy)[:\-]/.test(s);
-  if (tierish && !TIERS[s]) fails.push(`package.json declares "${s}", which is not in TIERS — no gate can ever run it`);
+  if (isTier(s) && !TIERS[s]) fails.push(`package.json declares "${s}", which is not in TIERS — no gate can ever run it`);
+}
+for (const v of VARIANTS) {
+  if (!scripts[v]) fails.push(`variants entry "${v}" no longer applies (the script is gone) — remove it`);
 }
 for (const [tier, why] of Object.entries(EXEMPT)) {
   if (!scripts[tier]) fails.push(`EXEMPT entry "${tier}" no longer applies (the script is gone) — remove it`);

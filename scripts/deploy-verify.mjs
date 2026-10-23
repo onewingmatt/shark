@@ -57,13 +57,16 @@ if (!files.length) {
 console.log(`◈ deploy-verify — ${cfg.host}:${cfg.container} vs git HEAD`);
 
 for (const { repo: repoPath, container: containerPath } of files) {
-  const head = sh(`git show HEAD:${repoPath} | md5sum`);
-  if (head.code !== 0) {
-    fails.push(`${repoPath}: not in git HEAD (untracked or wrong path) — cannot verify provenance`);
-    log(`FAIL ${repoPath}: not at HEAD`);
+  // Ask git whether the path EXISTS in HEAD, using git's OWN status, before piping to md5sum: in a
+  // pipeline the shell reports md5sum's status, so git's failure was invisible and an untracked path
+  // reported as an unreachable CONTAINER — the right verdict with the wrong diagnosis, which sends the
+  // reader to the wrong machine. (Found by the voodooprince install, RED-proved there.)
+  if (sh(`git cat-file -e HEAD:${repoPath}`).code !== 0) {
+    fails.push(`${repoPath}: not in git HEAD (untracked, or the path is wrong) — cannot verify provenance`);
+    log(`FAIL ${repoPath}: not in git HEAD`);
     continue;
   }
-  const want = head.out.slice(0, 8);
+  const want = sh(`git show HEAD:${repoPath} | md5sum`).out.slice(0, 8);
 
   const got = sh(
     `ssh -o ConnectTimeout=20 -o BatchMode=yes ${cfg.host} ${JSON.stringify(`docker exec ${cfg.container} md5sum ${containerPath}`)}`,
