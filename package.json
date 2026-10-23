@@ -1,0 +1,21 @@
+{
+  "name": "shark2",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Tooling-only manifest: the repo itself is Python (backend/*.py) + a Vite frontend. No npm dependencies are declared here.",
+  "scripts": {
+    "audit": "node --experimental-strip-types scripts/independent-rules-check.ts",
+    "deploy:verify": "node scripts/deploy-verify.mjs",
+    "gate": "node scripts/gate.mjs",
+    "gate:strict": "node scripts/gate.mjs --strict"
+  },
+  "gate": {
+    "floor": [
+      "audit",
+      "deploy:verify"
+    ],
+    "debt": {
+      "audit": "50 PASS / 4 FAIL — the 4 FAILs are done-gate frontend features that were never built (F-5 Leave, F-6 Reconnect, F-7 Pan/zoom, F-9 Legal-move highlight), documented in RULES-AUDIT.md under 'Done-gate (monorepo bar)'. The rules themselves pass; closing the gap is frontend work, and leaving it as reported debt is better than a check nobody runs."
+    }
+  }
+}

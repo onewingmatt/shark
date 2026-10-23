@@ -1,0 +1,10 @@
+{
+  "host": "onewing@10.0.0.145",
+  "container": "shark-backend-1",
+  "files": [
+    { "repo": "backend/main.py", "container": "/app/main.py" },
+    { "repo": "backend/game.py", "container": "/app/game.py" },
+    { "repo": "backend/bot_heuristics.py", "container": "/app/bot_heuristics.py" }
+  ],
+  "url": "https://shark.onewing.top/"
+}
