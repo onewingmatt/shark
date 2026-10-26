@@ -1,0 +1,29 @@
+# Test-only dependencies for `npm run test:features`.
+#
+# The tier launches test/features.mjs, which boots uvicorn + vite and runs
+# test/runtime-verify.py. That probe drives a real Chromium (playwright) and
+# opens a raw websocket (websockets — also a runtime dep in requirements.txt).
+#
+# Install into a REPO-LOCAL venv, which is what test/features.mjs looks for first.
+# BOTH files: the venv also serves the backend, so it needs the runtime deps too
+# (uvicorn/fastapi — without them the tier fails with "No module named uvicorn",
+# which is how the omission was found):
+#
+#   /usr/bin/python3 -m venv backend/.venv
+#   backend/.venv/bin/python -m pip install -r backend/requirements.txt -r backend/requirements-dev.txt
+#   backend/.venv/bin/python -m playwright install chromium
+#
+# Why a repo-local venv rather than "whatever python3 is": this tier first looked
+# flaky — passing from one shell and failing from another. The cause was PATH.
+# `python3` resolved to a miniconda 3.13 whose playwright 1.58.0 wanted
+# chromium_headless_shell-1208 (not downloaded), while the interactive shell's venv
+# had playwright 1.62.0 whose revision was. A tier that depends on the caller's
+# activated venv is the same defect as one that depends on uncommitted files.
+# The tier pre-flights an actual browser launch, so a browserless interpreter is
+# rejected up front instead of failing mid-probe.
+#
+# The pin also pins the browser revision: 1.62.0 uses the revision already in
+# ~/.cache/ms-playwright here, so this install needs no download. Bump the pin and
+# run `playwright install chromium` to move.
+playwright==1.62.0
+websockets>=12

@@ -1,2 +1,6 @@
 __pycache__/
 *.pyc
+
+# The test tier's repo-local venv (see backend/requirements-dev.txt). Reproduced
+# per box by test/features.mjs's documented install, never committed.
+backend/.venv/

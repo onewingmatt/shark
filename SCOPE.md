@@ -58,3 +58,10 @@ company's buildings are used, OR all shares of a company are sold, OR only one n
 See RULES-AUDIT.md §Done-gate: **Leave, Reconnect, Pan/zoom, Legal-move highlight are all built** (was
 4 fails); server-authoritative, how-to-play, scoreboard+log, working bots, hashed-asset cache-bust all
 present. `npm run audit` → 54 PASS / 0 FAIL.
+
+The FLOOR is `test:features` + `audit` + `deploy:verify`. `test:features` (`test/features.mjs`) boots
+uvicorn and vite itself, runs `test/runtime-verify.py` — a real Chromium driving a real server, 30
+runtime checks incl. the CVD glyphs — and tears both down, propagating the probe's exit code. It is
+there because the audit's F-rows are static greps: before this tier, a green gate proved only that
+certain words appeared in the source. The tier also pre-flights a browser launch, since playwright
+can import cleanly while its browser revision is missing.

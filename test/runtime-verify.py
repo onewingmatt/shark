@@ -1,7 +1,9 @@
 """
 Runtime verification for the four new shark2 frontend features.
 
-How to run (two servers + one script; the app talks to 8001 through the vite proxy):
+EQ: `npm run test:features` from the repo root is the supported entry point — it
+boots both servers, runs this file, tears them down and propagates the exit code.
+To run it by hand, start the servers yourself first:
   cd backend  && python3 -m uvicorn main:app --host 127.0.0.1 --port 8001 &
   cd frontend && npm run dev -- --port 5173 --host 127.0.0.1 --strictPort &
   python3 test/runtime-verify.py          # needs playwright + websockets
@@ -20,15 +22,19 @@ Detectors, none of which is the audit's static grep:
      is rejected; a pan-drag must not place a piece.
   5. Pan/zoom read from the board's COMPUTED transform, not from a screenshot.
 """
-import asyncio, copy, json, re, subprocess, sys, time
+import asyncio, copy, json, os, pathlib, re, subprocess, sys, time
 
-sys.path.insert(0, "/home/onewing/shark2/backend")
+# Resolve the backend from THIS file, not from an absolute path — the probe has to
+# work from a clean checkout on any box, and a hardcoded home directory silently
+# makes it a probe that only ever ran on the machine that wrote it.
+BACKEND_DIR = pathlib.Path(__file__).resolve().parent.parent / "backend"
+sys.path.insert(0, str(BACKEND_DIR))
 import websockets
 from game import GameState, Player, COMPANIES
 from playwright.sync_api import sync_playwright
 
-APP = "http://127.0.0.1:5173/"
-WS = "ws://127.0.0.1:8001/ws/{room}/observer"
+APP = os.environ.get("SHARK_APP_URL", "http://127.0.0.1:5173/")
+WS = os.environ.get("SHARK_WS_URL", "ws://127.0.0.1:8001/ws/{room}/observer")
 ALL_COMBOS = [(None, "place"), (None, "choose"), (None, "remove")] + \
              [(c, a) for c in COMPANIES for a in ("place", "choose", "remove")]
 
@@ -145,6 +151,21 @@ with sync_playwright() as pw:
     page.wait_for_function("() => !!document.querySelector('button.primary-action-btn')", timeout=15000)
     page.wait_for_timeout(400)
     check("game started (human seat, trade1 -> Roll button offered)", roll_button(page).count() == 1)
+
+    # ---- F-8: CVD, colour must not be the only channel ------------------------
+    # The portfolio swatches are the one place colour alone used to carry the
+    # meaning (the market badges always had 3-letter text). Read the RENDERED
+    # text, so a glyph defined in the source but never rendered still fails.
+    glyph_re = re.compile("[\u25cf\u25a0\u25b2\u2605]")
+    swatches = page.locator(".portfolio-item")
+    n_sw = swatches.count()
+    texts = [swatches.nth(i).inner_text() for i in range(n_sw)]
+    with_glyph = sum(1 for t in texts if glyph_re.search(t))
+    check("F-8 every portfolio swatch carries a company glyph, not colour alone",
+          n_sw > 0 and with_glyph == n_sw, f"{with_glyph}/{n_sw} swatch(es)")
+    distinct = sorted({m.group(0) for t in texts for m in [glyph_re.search(t)] if m})
+    check("F-8 the company glyphs are distinct shapes", len(distinct) >= 2,
+          f"{len(distinct)} distinct: {''.join(distinct)}")
 
     roll_button(page).click()
     page.wait_for_timeout(900)

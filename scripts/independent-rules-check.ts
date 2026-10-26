@@ -100,15 +100,35 @@ check('S-4', 'Server rejects out-of-range coordinates', /Invalid cell/.test(engi
 check('S-5', 'Bot turns are executed by a server-side loop (main.py room_bot_loop), not client-side', /room_bot_loop/.test(mainSrc) && /is_bot/.test(mainSrc))
 
 console.log('\n=== 9. DONE-GATE FEATURE SCAN (frontend, static) ===')
+// These are STATIC scans of the source. A pass here proves the code for a feature
+// is present, not that it behaves — the behavioural proof for F-5/F-6/F-7/F-9 and
+// the F-8 glyphs is `npm run test:features` (test/runtime-verify.py), which drives
+// a real browser and reads computed styles. Do not read a green here as "works".
 check('F-1', 'Lobby exists (create room, join by code, add bot, start)', /createRoom/.test(appSrc) && /joinRoom/.test(appSrc) && /addBot/.test(appSrc))
 check('F-2', 'How-to-Play modal present with rules content', /showHowToPlay/.test(appSrc) && /How to Play Shark/.test(appSrc))
 check('F-3', 'Scoreboard equivalent: Players panel shows cash + portfolio per player', /portfolio/.test(appSrc) && /p\.cash\.toLocaleString/.test(appSrc))
 check('F-4', 'Named activity log present (logs section)', /Activity Log/.test(appSrc) && /gameState\.logs\.map/.test(appSrc))
-check('F-5', 'Leave game — NOT found (no Leave button in lobby or in-game)', /leave/i.test(appSrc) && /leave/i.test(mainSrc))
-check('F-6', 'Reconnect — NOT found (no reconnect token, no localStorage persistence of room/player)', /localStorage/.test(appSrc) && /reconnect/i.test(mainSrc))
-check('F-7', 'Pan/zoom on board — NOT found (no drag/zoom handler; board is CSS grid cells)', /zoom|onWheel|onPointerDown.*drag/i.test(appSrc))
-check('F-8', 'CVD-safe palette — NOT verified: companies use pure red/blue/green/yellow hexes (#ef4444/#3b82f6/#22c55e/#eab308) with no symbols; red/green pair is deuteranopia-confusable', /#ef4444/.test(appSrc) && !/symbol|halo/i.test(appSrc))
-check('F-9', 'Legal-move highlight — NOT found (no legality pre-computation; server rejects invalid clicks silently)', /legal/i.test(appSrc) && /highlight/i.test(appSrc))
+check('F-5', 'Leave game — a Leave control exists in the lobby and in-game', /leave/i.test(appSrc) && /leave/i.test(mainSrc))
+check('F-6', 'Reconnect — session is persisted and a reconnect path exists', /localStorage/.test(appSrc) && /reconnect/i.test(mainSrc))
+check('F-7', 'Pan/zoom on the board — drag/zoom handlers exist', /zoom|onWheel|onPointerDown.*drag/i.test(appSrc))
+// CVD: colour must never be the only channel. The market badges always carried
+// 3-letter text, but the portfolio squares were a bare colour swatch, so the
+// red/green pair (deuteranopia-confusable) made two holdings look identical.
+// NOTE: this check previously PASSED on the defect — its condition was
+// `/#ef4444/.test(appSrc) && !/symbol|halo/i.test(appSrc)`, i.e. it reported
+// success exactly when the palette had no redundant cue. Inverted checks are
+// worse than no check, because the label described the bug while the run said PASS.
+const glyphMap = appSrc.match(/COMPANY_GLYPH[^}]*}/)?.[0] ?? ''
+const glyphs = glyphMap.match(/\\u25cf|\\u25a0|\\u25b2|\\u2605/g) ?? []
+check(
+  'F-8',
+  'CVD-safe: every company carries a non-colour glyph, and the portfolio renders it',
+  ['red', 'blue', 'green', 'yellow'].every((c) => new RegExp(`\\b${c}\\s*:`).test(glyphMap)) &&
+    new Set(glyphs).size === 4 &&
+    /pi-glyph/.test(appSrc),
+  `${new Set(glyphs).size} distinct glyph(s) for 4 companies`,
+)
+check('F-9', 'Legal-move highlight — legality is pre-computed and rendered', /legal/i.test(appSrc) && /highlight/i.test(appSrc))
 check('F-10', 'Cache-busting: built assets are content-hashed (index-<hash>.js/css) — equivalent of client.js?v=N for this stack', /index-[A-Za-z0-9_-]+\.js/.test(readFileSync(join(ROOT, 'frontend', 'dist', 'index.html'), 'utf8')) || /index-.*\.js/.test(appSrc))
 
 // ────────────────────────────────────────────────────────────────────────────

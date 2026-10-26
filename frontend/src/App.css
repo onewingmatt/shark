@@ -555,6 +555,22 @@ button:disabled {
 }
 .portfolio-item[class*="company-"] { border: none; }
 
+/* CVD-safe cue: the portfolio square carries a glyph, so colour is not the only
+   channel (red/green are deuteranopia-confusable). Sized down in the 17px
+   players column to keep glyph + count on one line. */
+.pi-glyph {
+  font-size: 0.7em;
+  margin-right: 2px;
+  line-height: 1;
+}
+.players-col .portfolio-item .pi-glyph {
+  font-size: 0.8em;
+  margin-right: 1px;
+}
+.players-col .portfolio-item {
+  font-size: 0.58rem;
+}
+
 /* Status Banners */
 .status-banner {
   padding: 0.7rem 0.85rem;

@@ -7,10 +7,12 @@
     "audit": "node --experimental-strip-types scripts/independent-rules-check.ts",
     "deploy:verify": "node scripts/deploy-verify.mjs",
     "gate": "node scripts/gate.mjs",
-    "gate:strict": "node scripts/gate.mjs --strict"
+    "gate:strict": "node scripts/gate.mjs --strict",
+    "test:features": "node test/features.mjs"
   },
   "gate": {
     "floor": [
+      "test:features",
       "audit",
       "deploy:verify"
     ],

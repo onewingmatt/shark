@@ -41,6 +41,7 @@ const TIERS = {
   'test:bots': 'the difficulty ladder is measured, not asserted',
   'test:socket': 'the wire contract holds',
   'test:reconnect': 'a seat survives a restart',
+  'test:features': 'the done-gate frontend features behave in a real browser',
   'deploy:verify': 'the RUNNING deploy is this revision (container md5 == git HEAD)',
 };
 

@@ -5,10 +5,15 @@ break play; 3 documented rule nuances; done-gate frontend features now BUILT (0 
 Run: `npm run audit` → **54 PASS / 0 FAIL / AUDIT RESULT PASS**.
 Source: `references/rulebook-extract.md` (real-game facts, cross-checked BGG/FT rulebook).
 
-> The audit's F-5..F-9 rows still carry their original "NOT found" wording — that text is the
-> check's label, not its assertion, and was deliberately left untouched (the assertion is
-> `/leave/i` etc. against the source, which now matches). Behaviour is proven separately at
-> runtime, not by the grep: see "Runtime verification" below.
+> The audit's F-5..F-9 rows are STATIC scans of the source (`/leave/i` and friends). A pass there
+> means the code for a feature is present, not that it behaves — the wording was corrected to say
+> so instead of the old "NOT found" labels, which had been reading as if the features were still
+> missing. The behavioural proof is the `test:features` tier (see "Runtime verification" below).
+>
+> F-8 was worse than a weak check: its condition was `/#ef4444/.test(appSrc) && !/symbol|halo/i`,
+> so it reported PASS exactly when the palette had NO redundant cue — an inverted check, whose
+> label described the defect while the run said PASS. It now asserts a distinct glyph per company
+> plus the render site, and fails when either is missing.
 
 ## Real game identity
 **SHARK** — Ravensburger economic stock-market board game, 12×12 grid, 5-section board. The port

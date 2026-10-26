@@ -4,6 +4,13 @@ import "./App.css";
 
 const COMPANIES = ["red", "blue", "green", "yellow"];
 
+// CVD-safe: colour is never the only channel. The market badges keep their
+// 3-letter text labels, but the portfolio squares used to be a bare colour
+// swatch, so a red/green confusion made two holdings look identical. Each
+// company now carries a glyph as well - the fleet convention (bottleimp uses
+// red ● / green ▲ / blue ■), with ★ for yellow since it is the fourth.
+const COMPANY_GLYPH: Record<string, string> = { red: "\u25cf", blue: "\u25a0", green: "\u25b2", yellow: "\u2605" };
+
 // localStorage key holding this client's seat, so a reload can reconnect.
 const SESSION_KEY = "shark_session";
 const MIN_ZOOM = 0.5;
@@ -747,7 +754,7 @@ function App() {
                   
                   {COMPANIES.map(c => (
                     <React.Fragment key={c}>
-                      <div><span className={`company-${c} company-badge`} style={{ display: 'inline-block', minWidth: '40px', textAlign: 'center' }}>{c.substring(0,3)}</span></div>
+                      <div><span className={`company-${c} company-badge`} style={{ display: 'inline-block', minWidth: '40px', textAlign: 'center' }}><span aria-hidden="true">{COMPANY_GLYPH[c]}</span> {c.substring(0,3)}</span></div>
                       <div style={{ fontWeight: 700, fontFamily: "'Space Mono', monospace", fontSize: "1rem", color: "#fff" }}>${gameState.stock_price[c].toLocaleString()}</div>
                       <div style={{ color: "var(--text-muted)", fontSize: "0.85rem", display: "flex", flexDirection: "column", gap: "0.25rem" }}>
                         <div style={{ fontFamily: "'Space Mono', monospace" }}>{gameState.remaining_buildings[c]} <span style={{fontSize:"0.65rem"}}>BLD</span></div>
@@ -800,6 +807,7 @@ function App() {
                     <div className="portfolio">
                       {COMPANIES.map(c => (
                         <div key={c} className={`portfolio-item ${p.stocks[c] > 0 ? 'company-'+c : ''}`} style={p.stocks[c] === 0 ? { background: '#1e293b', color: '#475569' } : {}}>
+                          <span className="pi-glyph" aria-hidden="true">{COMPANY_GLYPH[c]}</span>
                           {gameState.variants?.includes("open_hands") || p.id === playerId || gameState.status === "game_over" ? p.stocks[c] : "?"}
                         </div>
                       ))}
