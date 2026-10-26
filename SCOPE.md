@@ -55,5 +55,6 @@ company's buildings are used, OR all shares of a company are sold, OR only one n
   (RULES-AUDIT V-4).
 
 ## Done-gate status
-See RULES-AUDIT.md §Done-gate: **missing Leave, Reconnect, Pan/zoom, Legal-move highlight** (4 fails);
-server-authoritative, how-to-play, scoreboard+log, working bots, hashed-asset cache-bust all present.
+See RULES-AUDIT.md §Done-gate: **Leave, Reconnect, Pan/zoom, Legal-move highlight are all built** (was
+4 fails); server-authoritative, how-to-play, scoreboard+log, working bots, hashed-asset cache-bust all
+present. `npm run audit` → 54 PASS / 0 FAIL.
