@@ -39,6 +39,38 @@ class ActionRequest(BaseModel):
     action: str
     data: Dict[str, Any]
 
+class LeaveRequest(BaseModel):
+    player_id: str
+
+def _next_active_index(game: "GameState", start: int) -> int:
+    """First non-bankrupt seat at or after `start` (wraps)."""
+    n = len(game.players)
+    if n == 0:
+        return 0
+    for i in range(n):
+        if not game.players[(start + i) % n].bankrupt:
+            return (start + i) % n
+    return 0
+
+def _remove_player(game: "GameState", player_id: str):
+    """Drop a player from the room and keep the turn pointer on a live seat."""
+    player = game.get_player(player_id)
+    if not player:
+        return None
+    removed_idx = game.players.index(player)
+    was_current = game.current_player() is player
+    game.players.remove(player)
+    if game.players:
+        if was_current:
+            idx = removed_idx
+        else:
+            idx = game.current_turn_index - (1 if removed_idx < game.current_turn_index else 0)
+        game.current_turn_index = _next_active_index(game, idx % len(game.players))
+    else:
+        game.current_turn_index = 0
+    game.log(f"👋 {player.name} left the game.")
+    return player
+
 @app.post("/api/rooms/{room_id}/join")
 async def join_room(room_id: str, req: JoinRequest):
     room_id = room_id.upper()
@@ -50,6 +82,42 @@ async def join_room(room_id: str, req: JoinRequest):
     game = rooms[room_id]
     game.add_player(req.player_id, req.player_name)
     return {"status": "ok", "room_id": room_id, "player_id": req.player_id}
+
+@app.post("/api/rooms/{room_id}/reconnect")
+async def reconnect_room(room_id: str, req: JoinRequest):
+    """Re-attach a returning client to a seat it already holds (or to a lobby room).
+
+    This is what a reload / dropped socket calls: the client keeps its player_id in
+    localStorage and asks the server to restore that seat rather than taking a new one.
+    """
+    room_id = room_id.upper()
+    if room_id not in rooms:
+        return {"status": "error", "error": "Room not found"}
+    game = rooms[room_id]
+    if not game.get_player(req.player_id):
+        if game.is_playing or game.game_over:
+            return {"status": "error", "error": "Game already started"}
+        game.add_player(req.player_id, req.player_name)
+    connections.setdefault(room_id, [])
+    return {"status": "ok", "room_id": room_id, "player_id": req.player_id}
+
+@app.post("/api/rooms/{room_id}/leave")
+async def leave_room(room_id: str, req: LeaveRequest):
+    """Leave the room: free the seat, unstick the turn if it was theirs, and tell
+    every remaining socket so no client keeps rendering a ghost player."""
+    room_id = room_id.upper()
+    if room_id not in rooms:
+        return {"status": "ok", "left": True}
+    game = rooms[room_id]
+    player = _remove_player(game, req.player_id)
+    if player:
+        for ws in list(connections.get(room_id, [])):
+            try:
+                await ws.send_json({"type": "left", "player_id": req.player_id})
+            except Exception:
+                pass
+        await broadcast_state(room_id)
+    return {"status": "ok", "left": True}
 
 @app.post("/api/rooms/{room_id}/add_bot")
 async def add_bot(room_id: str):
@@ -210,7 +278,8 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, player_id: str)
                     
                 game = rooms[room_id]
                 
-                if action != "start" and player_id != game.current_player().id:
+                current = game.current_player()
+                if action not in ("start", "leave") and (not current or player_id != current.id):
                     continue
                     
                 success, error = False, ""
@@ -224,6 +293,12 @@ async def websocket_endpoint(websocket: WebSocket, room_id: str, player_id: str)
                         if not bot_loops_running.get(room_id, False):
                             asyncio.create_task(room_bot_loop(room_id))
                             
+                elif action == "leave":
+                    success = True
+                    if game.get_player(player_id):
+                        _remove_player(game, player_id)
+                        if game.is_playing and not game.game_over:
+                            await broadcast_state(room_id)
                 elif action == "roll":
                     game.roll_dice()
                     success = True

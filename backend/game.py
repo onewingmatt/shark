@@ -1,3 +1,4 @@
+import copy
 import random
 from typing import Literal, List, Dict, Optional, Any, Tuple
 from pydantic import BaseModel
@@ -549,6 +550,54 @@ class GameState:
                 wealth = p.cash + sum(p.stocks[c] * self.stock_price[c] for c in COMPANIES)
                 self.log(f"🏆 {p.name} final wealth: ${wealth}")
 
+    def _expand_combos(self) -> List[Tuple[Optional[Any], str]]:
+        """(chosen_company, gray_action) pairs describing every allowed reading of the
+        current dice roll. Used only to enumerate placements for the client's
+        legal-move highlight; expand() remains the sole authority on legality."""
+        comp = self.current_company_die
+        combos: List[Tuple[Optional[Any], str]] = []
+        if comp == "gray" and "neutral_buildings" in self.variants:
+            combos.append((None, "place"))      # barrier on any empty cell
+            combos.append((None, "remove"))     # take an existing gray barrier off
+            for c in COMPANIES:
+                combos.append((c, "choose"))    # any standard company building
+        elif comp == "black" and "joker_buildings" in self.variants:
+            combos.append((None, "place"))      # black joker (lone only)
+            if "neutral_buildings" in self.variants:
+                for c in COMPANIES:
+                    combos.append((c, "choose"))
+        elif comp in ("black", "gray"):         # wildcard die faces
+            for c in COMPANIES:
+                combos.append((c, "place"))
+        else:
+            combos.append((None, "place"))
+        return combos
+
+    def legal_expansions(self) -> List[List[int]]:
+        """Cells the CURRENT player may legally build on during this expand phase.
+
+        Enumerated by replaying expand() against a throwaway deep copy of this state,
+        so the client's legal-move highlight is derived from the engine's own
+        validation and cannot drift from it. Read-only — nothing here is mutated.
+        """
+        if not self.is_playing or self.game_over or self.phase != "expand":
+            return []
+        player = self.current_player()
+        if not player or not self.current_company_die:
+            return []
+
+        cells: List[List[int]] = []
+        combos = self._expand_combos()
+        for r in range(12):
+            for c in range(12):
+                for chosen, gray_action in combos:
+                    snap = copy.deepcopy(self)
+                    ok, _ = snap.expand(player.id, r, c, chosen, gray_action)
+                    if ok:
+                        cells.append([r, c])
+                        break
+        return cells
+
     def get_client_state(self, player_id: str) -> Dict[str, Any]:
         return {
             "room_id": self.room_id,
@@ -566,5 +615,6 @@ class GameState:
             "current_company_die": self.current_company_die,
             "current_area_die": self.current_area_die,
             "variants": self.variants,
-            "current_turn_purchases": self.current_turn_purchases
+            "current_turn_purchases": self.current_turn_purchases,
+            "legal_cells": self.legal_expansions()
         }

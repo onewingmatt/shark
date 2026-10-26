@@ -1,8 +1,14 @@
 import React, { useState, useEffect, useRef } from "react";
-import { AlertCircle, Play, DollarSign, Info, ArrowRightCircle, RefreshCcw, Bot, ArrowUpCircle, ArrowDownCircle, Settings, HelpCircle, X, Activity, Users, FileText, ChevronDown } from "lucide-react";
+import { AlertCircle, Play, DollarSign, Info, ArrowRightCircle, RefreshCcw, Bot, ArrowUpCircle, ArrowDownCircle, Settings, HelpCircle, X, Activity, Users, FileText, ChevronDown, LogOut } from "lucide-react";
 import "./App.css";
 
 const COMPANIES = ["red", "blue", "green", "yellow"];
+
+// localStorage key holding this client's seat, so a reload can reconnect.
+const SESSION_KEY = "shark_session";
+const MIN_ZOOM = 0.5;
+const MAX_ZOOM = 4;
+const clampZoom = (z: number) => Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, z));
 
 function App() {
   const [roomId, setRoomId] = useState("");
@@ -31,6 +37,104 @@ function App() {
   const [collapsedLogs, setCollapsedLogs] = useState(false);
 
   const wsRef = useRef<WebSocket | null>(null);
+
+  // ── Board pan/zoom view (pan drag + wheel/button zoom, cursor-anchored) ──────
+  const [view, setView] = useState({ zoom: 1, x: 0, y: 0 });
+  const viewportRef = useRef<HTMLDivElement | null>(null);
+  const boardRef = useRef<HTMLDivElement | null>(null);
+  const dragRef = useRef<{ id: number; x: number; y: number; ox: number; oy: number; moved: boolean } | null>(null);
+  const suppressClickRef = useRef(false);
+
+  const resetView = () => setView({ zoom: 1, x: 0, y: 0 });
+
+  const zoomAt = (factor: number) => setView(v => {
+    const z = clampZoom(v.zoom * factor);
+    const el = viewportRef.current;
+    const cx = el ? el.clientWidth / 2 : 0;
+    const cy = el ? el.clientHeight / 2 : 0;
+    const k = z / v.zoom;
+    return { zoom: z, x: cx * (1 - k) + k * v.x, y: cy * (1 - k) + k * v.y };
+  });
+
+  const handlePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    suppressClickRef.current = false;
+    dragRef.current = { id: e.pointerId, x: e.clientX, y: e.clientY, ox: view.x, oy: view.y, moved: false };
+  };
+
+  const handlePointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    const d = dragRef.current;
+    if (!d || d.id !== e.pointerId) return;
+    const dx = e.clientX - d.x, dy = e.clientY - d.y;
+    if (!d.moved && Math.hypot(dx, dy) < 6) return; // still a tap — let the click through
+    d.moved = true;
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* unreleased pointer */ }
+    setView(v => ({ ...v, x: d.ox + dx, y: d.oy + dy }));
+  };
+
+  const handlePointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    const d = dragRef.current;
+    if (!d || d.id !== e.pointerId) return;
+    if (d.moved) {
+      suppressClickRef.current = true; // a pan must never place a piece
+      try { e.currentTarget.releasePointerCapture(e.pointerId); } catch { /* not captured */ }
+      setTimeout(() => { suppressClickRef.current = false; }, 0);
+    }
+    dragRef.current = null;
+  };
+
+  useEffect(() => {
+    // Wheel zoom needs a NON-passive native listener: React's onWheel is passive,
+    // where preventDefault() is ignored and the page scrolls under the board.
+    const el = viewportRef.current;
+    if (!el) return;
+    const onWheelNative = (e: WheelEvent) => {
+      e.preventDefault();
+      setView(v => {
+        const z = clampZoom(v.zoom * (e.deltaY < 0 ? 1.15 : 1 / 1.15));
+        const rect = boardRef.current?.getBoundingClientRect();
+        const baseX = (rect?.left ?? 0) - v.x;
+        const baseY = (rect?.top ?? 0) - v.y;
+        const cx = e.clientX - baseX, cy = e.clientY - baseY;
+        const k = z / v.zoom;
+        return { zoom: z, x: cx * (1 - k) + k * v.x, y: cy * (1 - k) + k * v.y };
+      });
+    };
+    el.addEventListener("wheel", onWheelNative, { passive: false });
+    return () => el.removeEventListener("wheel", onWheelNative);
+  }, [gameState?.status, gameState?.phase]);
+
+  // ── Reconnect: restore a saved seat on load instead of forcing a re-join ─────
+  useEffect(() => {
+    const raw = localStorage.getItem(SESSION_KEY);
+    if (!raw) return;
+    let saved: { room_id?: string; player_id?: string; player_name?: string } | null = null;
+    try { saved = JSON.parse(raw); } catch { saved = null; }
+    if (!saved?.room_id || !saved?.player_id) { localStorage.removeItem(SESSION_KEY); return; }
+    const seat = saved;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`/api/rooms/${seat.room_id}/reconnect`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ room_id: seat.room_id, player_id: seat.player_id, player_name: seat.player_name || "Player" }),
+        });
+        const data = await res.json();
+        if (cancelled) return;
+        if (data.status === "ok") {
+          setRoomId(data.room_id);
+          setPlayerId(seat.player_id as string);
+          setPlayerName(seat.player_name || "Player");
+          connectWs(data.room_id, seat.player_id as string);
+        } else {
+          localStorage.removeItem(SESSION_KEY);
+        }
+      } catch {
+        if (!cancelled) localStorage.removeItem(SESSION_KEY);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   useEffect(() => {
     const handleResize = () => setIsMobile(window.innerWidth <= 900);
@@ -83,7 +187,10 @@ function App() {
         }
         
         setGameState(newState);
-        setErrorMsg("");
+        // NOTE: do NOT clear errorMsg here. The server sends the error, then
+        // broadcasts state immediately after — clearing on state silently wiped
+        // every rejection (invalid placements looked like nothing happened).
+        // The error branch below owns the 5s auto-clear instead.
       } else if (data.type === "error") {
         setErrorMsg(data.message);
         setTimeout(() => setErrorMsg(""), 5000);
@@ -129,6 +236,8 @@ function App() {
       });
       
       if (res.ok) {
+        // Persist the seat so a reload reconnects instead of forcing a re-join.
+        localStorage.setItem(SESSION_KEY, JSON.stringify({ room_id: roomId, player_id: pid, player_name: playerName }));
         connectWs(roomId, pid);
       } else {
         setErrorMsg("Failed to join room. It might not exist.");
@@ -150,12 +259,41 @@ function App() {
     }
   }
 
+  // Leave the room: confirm mid-game, tell the server, wipe the saved seat, and
+  // drop straight back to the entry screen.
+  const leaveGame = async () => {
+    const inProgress = gameState?.status === "playing";
+    if (inProgress && !window.confirm("Leave the game in progress? Your seat will be forfeited.")) return;
+    const room = roomId || gameState?.room_id || "";
+    const pid = playerId || gameState?.my_id || "";
+    try {
+      if (room && pid) {
+        await fetch(`/api/rooms/${room}/leave`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ player_id: pid }),
+        });
+      }
+    } catch (e) {
+      console.error(e); // leaving is best-effort — never trap the client in a room
+    }
+    localStorage.removeItem(SESSION_KEY);
+    try { wsRef.current?.close(); } catch (e) { console.error(e); }
+    wsRef.current = null;
+    setWs(null);
+    setGameState(null);
+    setRoomId("");
+    setPlayerId("");
+    resetView();
+  };
+
   const sendAction = (action: string, data: any = {}) => {
     if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) return;
     wsRef.current.send(JSON.stringify({ type: "action", action, data }));
   };
 
   const handleCellClick = (r: number, c: number) => {
+    if (suppressClickRef.current) return; // a pan drag, not a placement
     if (gameState?.phase !== "expand") return;
     if (gameState?.current_player !== playerId) return;
     
@@ -301,6 +439,12 @@ function App() {
   const me = gameState.players.find((p: any) => p.id === playerId);
   const remainingBuys = Math.max(0, 5 - (gameState.current_turn_purchases || 0));
 
+  // Cells the server says are legal for this expand phase — precomputed engine-side
+  // so the highlight can never disagree with what expand() will accept.
+  const legalCells = new Set<string>(
+    (gameState.legal_cells || []).map((rc: number[]) => `${rc[0]}-${rc[1]}`)
+  );
+
   const getCompanyColorClasses = (company: string) => {
     if (company === "black") return "company-black";
     if (company === "gray") return "company-gray";
@@ -334,11 +478,20 @@ function App() {
         <div className="header-right">
         
         <div className="player-tag" title="Your Username">👤 {playerName}</div>
+        <button className="leave-btn" onClick={leaveGame} title="Leave this game room"><LogOut size={16} /> Leave</button>
         </div>
       </header>
 
       <div className="main-content">
-        <div className="board-container" style={{ display: 'flex', flexDirection: 'column' }}>
+        <div
+          className="board-container"
+          ref={viewportRef}
+          style={{ display: 'flex', flexDirection: 'column' }}
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerUp}
+          onPointerCancel={handlePointerUp}
+        >
           {gameState.phase === "expand" && gameState.current_company_die && (
             <div className="dice-overlay">
               <div style={{ position: "relative", display: "flex", justifyContent: "center" }}>
@@ -355,17 +508,27 @@ function App() {
               </div>
             </div>
           )}
-          
-          <div className="board">
+
+          <div className="board-zoom">
+            <button type="button" className="zoom-btn" onClick={() => zoomAt(1.25)} title="Zoom in" aria-label="Zoom in">+</button>
+            <button type="button" className="zoom-btn" onClick={() => zoomAt(1 / 1.25)} title="Zoom out" aria-label="Zoom out">−</button>
+            <button type="button" className="zoom-btn zoom-reset" onClick={resetView} title="Reset view" aria-label="Reset view">⟲</button>
+          </div>
+
+          <div
+            className="board"
+            ref={boardRef}
+            style={{ transform: `translate(${view.x}px, ${view.y}px) scale(${view.zoom})`, transformOrigin: "0 0" }}
+          >
             {gameState.board.map((row: any[], r: number) =>
               row.map((cell: any, c: number) => (
                 <div
                   key={`${r}-${c}`}
                   className={`cell area-${cell.area.toLowerCase()} ${
                     cell.company ? getCompanyColorClasses(cell.company) : ""
-                  }`}
+                  } ${legalCells.has(`${r}-${c}`) ? "legal-highlight" : ""}`}
                   onClick={() => handleCellClick(r, c)}
-                  title={`Area: ${cell.area} | Row ${r+1}, Col ${c+1}`}
+                  title={`Area: ${cell.area} | Row ${r+1}, Col ${c+1}${legalCells.has(`${r}-${c}`) ? " | Legal placement" : ""}`}
                 >
                   {cell.company ? "" : cell.area === "SHARK" ? "" : cell.area}
                 </div>
@@ -420,6 +583,9 @@ function App() {
                   </button>
                   <button onClick={() => sendAction("start")} style={{ flex: 2, background: "var(--primary)" }} disabled={gameState.players.length < 2}>
                     <Play size={20} /> Start Game Now
+                  </button>
+                  <button onClick={leaveGame} style={{ flex: 1, background: "#334155", color: "white" }} title="Leave this room">
+                    <LogOut size={20} /> Leave Room
                   </button>
                 </div>
               </div>
