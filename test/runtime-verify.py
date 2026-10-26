@@ -22,7 +22,7 @@ Detectors, none of which is the audit's static grep:
      is rejected; a pan-drag must not place a piece.
   5. Pan/zoom read from the board's COMPUTED transform, not from a screenshot.
 """
-import asyncio, copy, json, os, pathlib, re, subprocess, sys, time
+import asyncio, copy, json, os, pathlib, re, subprocess, sys, time, urllib.parse
 
 # Resolve the backend from THIS file, not from an absolute path — the probe has to
 # work from a clean checkout on any box, and a hardcoded home directory silently
@@ -114,7 +114,23 @@ def empty_cell_xy(page, r, c):
     })""", [r, c])
     return box
 
+# Origin attribution, used by the listeners below. A live run sits behind an edge
+# proxy that injects a third-party analytics beacon (static.cloudflareinsights.com);
+# when the machine driving the probe cannot reach it, the browser logs "Failed to
+# load resource: net::ERR_CONNECTION_REFUSED", which says nothing about the app. But
+# a same-origin 404 is a SUCCESSFUL request at the network level — it never fires
+# `requestfailed` — so network health has to be judged on both failure and status.
+_app_host = (urllib.parse.urlparse(APP).hostname or "").lower()
+
+
+def _third_party(url):
+    host = (urllib.parse.urlparse(url).hostname or "").lower()
+    return bool(host) and host != _app_host
+
+
 console_errors = []
+failed_requests = []  # (url, failure) for every request the page could not complete
+bad_status = []  # (url, status) same-origin responses the server answered with an error
 
 with sync_playwright() as pw:
     browser = pw.chromium.launch()
@@ -122,6 +138,13 @@ with sync_playwright() as pw:
     page.on("dialog", lambda d: d.accept())
     page.on("pageerror", lambda e: console_errors.append(f"pageerror: {e}"))
     page.on("console", lambda m: console_errors.append(f"console.{m.type}: {m.text}") if m.type == "error" else None)
+    page.on("requestfailed", lambda r: failed_requests.append((r.url, str(r.failure or ""))))
+    page.on(
+        "response",
+        lambda r: bad_status.append((r.url, r.status))
+        if r.status >= 400 and not _third_party(r.url)
+        else None,
+    )
 
     # ---- lobby: create + join -------------------------------------------------
     page.goto(APP, wait_until="networkidle")
@@ -301,8 +324,31 @@ with sync_playwright() as pw:
     # ---- backend seat really freed -----------------------------------------
     browser.close()
 
-app_errors = [e for e in console_errors if "favicon" not in e and "Download the React DevTools" not in e]
-check("zero page errors across the whole drive", not app_errors, f"{len(app_errors)} error(s)" + (f": {app_errors[:3]}" if app_errors else ""))
+# 'Failed to load resource' is a NETWORK event, not a JS exception — it is asserted
+# per-origin below, so it must not be counted as an app error here. Covers both ways
+# a same-origin resource can break: the request never completing (refused/aborted)
+# and the server answering with an error status (404 on a renamed asset).
+own_failed = [u for u, _ in failed_requests if not _third_party(u)]
+other_failed = [u for u, _ in failed_requests if _third_party(u)]
+js_errors = [
+    e
+    for e in console_errors
+    if "Failed to load resource" not in e
+    and "favicon" not in e
+    and "Download the React DevTools" not in e
+]
+check(
+    "no uncaught JS errors in the app",
+    not js_errors,
+    f"{len(js_errors)} error(s)" + (f": {js_errors[:3]}" if js_errors else ""),
+)
+check(
+    "every request to the app's own origin succeeded (no failure, no 4xx/5xx)",
+    not own_failed and not bad_status,
+    f"{len(own_failed)} failed, {len(bad_status)} bad status"
+    + (f": {(own_failed + [f'{u} -> {s}' for u, s in bad_status])[:3]}" if (own_failed or bad_status) else "")
+    + (f" (third-party, not the app: {len(other_failed)}: {other_failed[:2]})" if other_failed else ""),
+)
 
 bad = [n for n, ok, _ in results if not ok]
 print(f"\n=== {len(results) - len(bad)}/{len(results)} runtime checks PASSED ===")
